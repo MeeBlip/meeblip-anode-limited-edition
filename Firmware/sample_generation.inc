@@ -275,6 +275,22 @@ EXIT_PULSEB:
 			
 			;ldi		r16, $80	; silence osc b (test)
 
+;-------------------------------------------------------------------------------------------------------------------
+; Sum Oscillators
+;
+; Combines DCOA (in r17) and DCOB (in r16) waves to produce a 16-bit signed result in HDAC:LDAC (r17:r16)
+
+
+; Mixer out = (A*x + B*(1-x))/4   x=0..1
+			ldi		r22, 135			; Set DCO A level = 135  
+			mulsu	r17, r22			; signed DCO A wave * level
+			movw	r30, r0				; store value in temp register
+			ldi		r22, 119			; Set DCO B level = 120
+			mulsu	r16, r22			; signed DCO B wave * level
+			add		r30, r0
+			adc		r31, r1				; sum scaled waves
+			movw	r16, r30			; copy signed output into r16
+
 			jmp		PRE_DCF
 		
 
@@ -341,26 +357,18 @@ DCOB_WAVES:
 			lds		r30, LEVEL_L
 			out		SPDR, r30
 
-PRE_DCF:
+			; Shift both oscillators one bit right to make sure we don't overflow the sum.
+			asr	    r17		            ;\
+			ror	    r16		            ;/ r17:r16 = r17:r16 asr 1
 
-;-------------------------------------------------------------------------------------------------------------------
-; Sum Oscillators
-;
-; Combines DCOA (in r17) and DCOB (in r16) waves to produce a 16-bit signed result in HDAC:LDAC (r17:r16)
+			asr	    r19		            ;\
+		    ror	    r18		            ;/ r19:r18 = r19:r18 asr 1
+
+			add		r16, r18
+			adc		r17, r19			; Sum the oscillators
 
 
-; Mixer out = (A*x + B*(1-x))/4   x=0..1
-			ldi		r22, 60			; Set DCO A&B levels = 60 to avoid resonance headroom clipping 
-			mulsu	r17, r22			; signed DCO A wave * level
-			movw	r30, r0				; store value in temp register
-			mulsu	r16, r22			; signed DCO B wave * level
-			add		r30, r0
-			adc		r31, r1				; sum scaled waves
-			movw	r16, r30			; copy signed output into r16
 
-			;jmp		PRE_DCF
-
-;-------------------------------------------------------------------------------------------------------------------
 ; Finish loading cutoff or envelope level, pull CS high. 
 
 			; Make sure SPI has enough time to complete.
@@ -375,9 +383,10 @@ PRE_DCF:
 			NOP	NOP	NOP	NOP
 
 
+PRE_DCF:
+
 ; Finish loading cutoff or envelope level, pull CS high. 
 			sbi		PORTD, 3	; CS (DAC)
-
 			
 ;-------------------------------------------------------------------------------------------------------------------
 ; Digitally Controlled Filter
@@ -393,6 +402,11 @@ PRE_DCF:
 ;
 
 DCF:
+
+			; rotate right to make headroom for resonance.  
+
+            asr	    r17		            ;\
+		    ror	    r16		            ;/ r17:r16 = r17:r16 asr 1
 
 			
  .INCLUDE "digital_filter.inc"	
